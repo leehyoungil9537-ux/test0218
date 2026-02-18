@@ -1,0 +1,820 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>교실형 자리배치표 30명 (모둠 템플릿)</title>
+
+  <!-- Bootstrap -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- SweetAlert2 -->
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <style>
+    .seat-card { user-select: none; }
+    .dragging { opacity: .55; transform: scale(.98); }
+    .drop-hint { outline: 3px dashed rgba(99,102,241,.65); outline-offset: 3px; }
+
+    .aisle-cell {
+      background: transparent !important;
+      border: 1px dashed rgba(148,163,184,.25);
+    }
+    .empty-cell {
+      background: rgba(255,255,255,.02);
+      border: 1px dashed rgba(148,163,184,.18);
+    }
+    .is-seat-hidden { opacity: .25; filter: grayscale(1); }
+
+    /* print */
+    @media print {
+      .no-print { display: none !important; }
+      body { background: #fff !important; color: #111827 !important; }
+      .print-text-dark { color: #111827 !important; }
+      #classroomShell { box-shadow: none !important; border: 1px solid #ddd !important; }
+      .glass { background: #fff !important; }
+    }
+  </style>
+</head>
+
+<body class="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100">
+  <div class="container py-4 py-lg-5">
+
+    <!-- Header -->
+    <div class="d-flex flex-column flex-lg-row align-items-lg-end justify-content-between gap-3 mb-4">
+      <div>
+        <div class="inline-flex items-center gap-2 rounded-full bg-white/5 px-3 py-1 text-xs text-slate-300 border border-white/10">
+          <span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span>
+          Real Classroom Layout + Group Templates
+        </div>
+        <h1 class="mt-2 text-2xl md:text-3xl font-bold tracking-tight">
+          교실형 자리배치표 <span class="text-indigo-300">30명</span>
+        </h1>
+        <p class="text-slate-300 mt-1 mb-0">
+          이름 클릭 → 수정 / 드래그 → 자리 이동 / 저장 → 다음에도 그대로
+        </p>
+      </div>
+
+      <!-- Controls -->
+      <div class="no-print d-flex flex-wrap gap-2">
+        <button id="btnTitle" class="btn btn-outline-light">🧾 수업 제목</button>
+
+        <!-- NEW: Templates -->
+        <div class="btn-group" role="group" aria-label="templates">
+          <button id="btnTplLecture" class="btn btn-outline-info">🏫 강의식</button>
+          <button id="btnTplGroup4" class="btn btn-outline-info">🧩 4인 모둠</button>
+          <button id="btnTplGroup6" class="btn btn-outline-info">🧩 6인 모둠</button>
+        </div>
+
+        <button id="btnEditAll" class="btn btn-light">✍️ 전체 이름 입력</button>
+        <button id="btnShuffle" class="btn btn-warning">🔀 랜덤 섞기</button>
+        <button id="btnSave" class="btn btn-primary">💾 저장</button>
+        <button id="btnLoad" class="btn btn-outline-light">⤵️ 불러오기</button>
+        <button id="btnExport" class="btn btn-outline-info">⬇️ CSV</button>
+        <button id="btnPrint" class="btn btn-success">🖨️ 인쇄</button>
+        <button id="btnReset" class="btn btn-outline-danger">♻️ 초기화</button>
+      </div>
+    </div>
+
+    <!-- Classroom Shell -->
+    <div id="classroomShell"
+      class="rounded-4 border border-white/10 bg-white/5 backdrop-blur shadow-[0_20px_60px_-25px_rgba(0,0,0,.75)] overflow-hidden">
+
+      <!-- Front (Board) -->
+      <div class="relative px-3 px-md-4 py-3 border-b border-white/10 bg-gradient-to-r from-emerald-500/10 via-lime-500/5 to-cyan-500/10">
+        <div class="d-flex align-items-center justify-content-between gap-3">
+          <div class="d-flex align-items-center gap-2">
+            <div class="rounded-3 bg-black/40 border border-white/10 px-3 py-2 shadow-inner">
+              <div class="text-xs text-emerald-200/90">칠판</div>
+              <div id="classTitle" class="text-sm font-semibold text-slate-100 print-text-dark">정보 수업</div>
+              <div id="layoutBadge" class="mt-1 text-[11px] text-slate-300">레이아웃: 강의식</div>
+            </div>
+            <div class="text-xs text-slate-300">
+              좌측: 출입문 / 우측: 창문 / 가운데: 통로(모둠 템플릿은 자동)
+            </div>
+          </div>
+
+          <!-- Layout controls (lecture only; still visible but optional) -->
+          <div class="no-print d-flex align-items-center gap-2">
+            <label class="text-xs text-slate-300 mb-0">행</label>
+            <input id="rows" type="number" min="1" max="10" value="5"
+              class="form-control form-control-sm w-[76px] bg-white/10 text-slate-100 border-white/10" />
+            <label class="text-xs text-slate-300 mb-0">좌석열</label>
+            <input id="seatCols" type="number" min="2" max="10" value="6"
+              class="form-control form-control-sm w-[76px] bg-white/10 text-slate-100 border-white/10" />
+            <label class="text-xs text-slate-300 mb-0">통로폭</label>
+            <select id="aisleW"
+              class="form-select form-select-sm w-[92px] bg-white/10 text-slate-100 border-white/10">
+              <option value="1" selected>1칸</option>
+              <option value="2">2칸</option>
+              <option value="0">없음</option>
+            </select>
+            <button id="btnApplyLectureLayout" class="btn btn-sm btn-outline-light">적용</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Middle: room frame with door/windows -->
+      <div class="grid grid-cols-12 gap-0">
+        <!-- Left side: Door -->
+        <div class="col-span-2 border-r border-white/10 bg-white/3 p-3 md:p-4">
+          <div class="rounded-4 border border-white/10 bg-gradient-to-b from-amber-500/10 to-rose-500/5 p-3">
+            <div class="text-xs text-amber-200/90">출입문</div>
+            <div class="mt-2 rounded-3 border border-white/10 bg-black/20 p-3">
+              <div class="h-20 rounded-3 bg-amber-300/10 border border-amber-300/20"></div>
+              <div class="mt-2 text-[11px] text-slate-300">🔒 문 손잡이 →</div>
+            </div>
+          </div>
+
+          <div class="mt-3 rounded-4 border border-white/10 bg-white/5 p-3 text-[11px] text-slate-300">
+            <div class="font-semibold text-slate-200">빠른 팁</div>
+            <ul class="mt-2 mb-0 list-disc ps-4">
+              <li>이름 클릭: 수정</li>
+              <li>드래그: 자리교환</li>
+              <li>템플릿: 모둠/강의식</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Center: Seats + teacher desk -->
+        <div class="col-span-8 p-3 p-md-4">
+          <!-- Teacher desk -->
+          <div class="mb-3">
+            <div class="rounded-4 border border-white/10 bg-gradient-to-r from-indigo-500/15 to-cyan-500/10 p-3">
+              <div class="d-flex align-items-center justify-content-between gap-3">
+                <div class="d-flex align-items-center gap-2">
+                  <div class="rounded-3 bg-white/10 border border-white/10 px-2 py-1 text-xs text-slate-200">
+                    👩‍🏫 교탁
+                  </div>
+                  <div class="text-xs text-slate-300">전면(칠판 아래)</div>
+                </div>
+                <div class="no-print d-flex align-items-center gap-2">
+                  <button id="btnAbsentMode" class="btn btn-sm btn-outline-warning">🚫 결석/비활성 토글</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Seats grid -->
+          <div class="rounded-4 border border-white/10 bg-white/5 p-3 md:p-4 shadow-[0_10px_30px_-20px_rgba(0,0,0,.8)]">
+            <div id="seats" class="grid gap-3"></div>
+            <div class="mt-3 text-xs text-slate-400">
+              💡 점선 칸은 통로/간격(자리 아님)입니다. 모둠 템플릿은 통로가 자동 생성됩니다.
+            </div>
+          </div>
+        </div>
+
+        <!-- Right side: Windows -->
+        <div class="col-span-2 border-l border-white/10 bg-white/3 p-3 md:p-4">
+          <div class="rounded-4 border border-white/10 bg-gradient-to-b from-sky-500/10 to-indigo-500/5 p-3">
+            <div class="text-xs text-sky-200/90">창문</div>
+            <div class="mt-2 grid gap-2">
+              <div class="glass rounded-3 border border-white/10 bg-white/10 p-3">
+                <div class="h-10 rounded-3 bg-sky-300/10 border border-sky-300/20"></div>
+              </div>
+              <div class="glass rounded-3 border border-white/10 bg-white/10 p-3">
+                <div class="h-10 rounded-3 bg-sky-300/10 border border-sky-300/20"></div>
+              </div>
+              <div class="glass rounded-3 border border-white/10 bg-white/10 p-3">
+                <div class="h-10 rounded-3 bg-sky-300/10 border border-sky-300/20"></div>
+              </div>
+            </div>
+            <div class="mt-2 text-[11px] text-slate-300">🌤️ 채광 좋은 자리</div>
+          </div>
+
+          <div class="mt-3 rounded-4 border border-white/10 bg-white/5 p-3 text-[11px] text-slate-300">
+            <div class="font-semibold text-slate-200">인쇄 팁</div>
+            <div class="mt-2">인쇄 버튼을 누르면 교실 프레임까지 함께 출력됩니다.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer bar -->
+      <div class="px-3 px-md-4 py-3 border-t border-white/10 text-xs text-slate-400">
+        저장 키: <span class="text-slate-200">localStorage</span> · CSV/인쇄 지원 · 디자인: Bootstrap + Tailwind + SweetAlert2
+      </div>
+    </div>
+  </div>
+
+<script>
+  const TOTAL = 30;
+  const STORAGE_KEY = "classroom_seating_v3_group_templates";
+
+  const elSeats = document.getElementById("seats");
+  const elRows = document.getElementById("rows");
+  const elSeatCols = document.getElementById("seatCols");
+  const elAisleW = document.getElementById("aisleW");
+  const elTitle = document.getElementById("classTitle");
+  const elBadge = document.getElementById("layoutBadge");
+
+  let absentMode = false;
+
+  // layoutMode: "lecture" | "group4" | "group6"
+  let state = {
+    title: "정보 수업",
+    layoutMode: "lecture",
+
+    // lecture params
+    rows: 5,
+    seatCols: 6,
+    aisleW: 1,
+
+    seats: Array.from({ length: TOTAL }, (_, i) => ({
+      id: i + 1,
+      name: `학생 ${String(i + 1).padStart(2, "0")}`,
+      inactive: false
+    }))
+  };
+
+  function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  /* ---------------------------
+     DISPLAY MATRIX GENERATORS
+     cell: {type:"seat", seatIndex:number} | {type:"aisle"} | {type:"empty"}
+  ---------------------------- */
+
+  function setGridColumns(cols) {
+    elSeats.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+  }
+
+  // Lecture display
+  function buildLectureMatrix() {
+    const seatCols = state.seatCols;
+    const rows = state.rows;
+    const aisleW = state.aisleW;
+
+    const totalCols = seatCols + aisleW;
+    const aisleStart = Math.floor(seatCols / 2);
+
+    const capacity = seatCols * rows;
+    if (capacity < TOTAL) return { cols: totalCols, matrix: [[{type:"empty"}]] };
+
+    let seatCursor = 0;
+    const matrix = [];
+
+    for (let r = 0; r < rows; r++) {
+      const row = [];
+      for (let c = 0; c < totalCols; c++) {
+        const isAisle = (aisleW > 0) && (c >= aisleStart) && (c < aisleStart + aisleW);
+        if (isAisle) {
+          row.push({ type: "aisle" });
+        } else {
+          if (seatCursor < capacity) {
+            if (seatCursor < TOTAL) row.push({ type: "seat", seatIndex: seatCursor });
+            else row.push({ type: "empty" });
+            seatCursor++;
+          } else {
+            row.push({ type: "empty" });
+          }
+        }
+      }
+      matrix.push(row);
+    }
+
+    return { cols: totalCols, matrix };
+  }
+
+  // Group templates:
+  // - group4: islands of 2x2 seats
+  // - group6: islands of 2x3 seats
+  // We auto-create aisles between islands and between island-rows.
+  function buildGroupMatrix(groupSize) {
+    // island footprint
+    const islandRows = 2;
+    const islandCols = (groupSize === 4) ? 2 : 3;
+
+    // layout tuning
+    const islandsPerRow = (groupSize === 4) ? 4 : 3; // 4*(2col) fits well, 3*(3col) fits well
+    const aisleX = 1;  // vertical aisle width between islands
+    const aisleY = 1;  // horizontal aisle height between island rows
+
+    const islandCount = Math.ceil(TOTAL / groupSize); // 4인: 8섬(32cap), 6인: 5섬(30cap)
+    const rowBlocks = Math.ceil(islandCount / islandsPerRow);
+
+    const cols =
+      islandsPerRow * islandCols + (islandsPerRow - 1) * aisleX;
+
+    const rows =
+      rowBlocks * islandRows + (rowBlocks - 1) * aisleY;
+
+    // build empty matrix
+    const matrix = Array.from({ length: rows }, () =>
+      Array.from({ length: cols }, () => ({ type: "empty" }))
+    );
+
+    // place islands
+    let seatCursor = 0;
+    for (let b = 0; b < rowBlocks; b++) {
+      for (let k = 0; k < islandsPerRow; k++) {
+        const islandIndex = b * islandsPerRow + k;
+        if (islandIndex >= islandCount) break;
+
+        const startR = b * (islandRows + aisleY);
+        const startC = k * (islandCols + aisleX);
+
+        // Fill island seats
+        for (let r = 0; r < islandRows; r++) {
+          for (let c = 0; c < islandCols; c++) {
+            if (seatCursor < TOTAL) {
+              matrix[startR + r][startC + c] = { type: "seat", seatIndex: seatCursor };
+              seatCursor++;
+            } else {
+              matrix[startR + r][startC + c] = { type: "empty" };
+            }
+          }
+        }
+      }
+    }
+
+    // Convert the "gaps" between islands to aisle cells (visual)
+    // Vertical aisles
+    for (let k = 1; k < islandsPerRow; k++) {
+      const aisleColStart = k * islandCols + (k - 1) * aisleX;
+      for (let r = 0; r < rows; r++) {
+        for (let a = 0; a < aisleX; a++) {
+          matrix[r][aisleColStart + a] = { type: "aisle" };
+        }
+      }
+    }
+    // Horizontal aisles
+    for (let b = 1; b < rowBlocks; b++) {
+      const aisleRowStart = b * islandRows + (b - 1) * aisleY;
+      for (let c = 0; c < cols; c++) {
+        for (let a = 0; a < aisleY; a++) {
+          matrix[aisleRowStart + a][c] = { type: "aisle" };
+        }
+      }
+    }
+
+    return { cols, matrix };
+  }
+
+  function getDisplay() {
+    if (state.layoutMode === "group4") return buildGroupMatrix(4);
+    if (state.layoutMode === "group6") return buildGroupMatrix(6);
+    return buildLectureMatrix();
+  }
+
+  /* ---------------------------
+     RENDER + INTERACTION
+  ---------------------------- */
+
+  function render() {
+    elTitle.textContent = state.title;
+
+    const badgeText =
+      state.layoutMode === "group4" ? "레이아웃: 4인 모둠(섬)" :
+      state.layoutMode === "group6" ? "레이아웃: 6인 모둠(섬)" :
+      `레이아웃: 강의식 (${state.seatCols}×${state.rows}, 통로 ${state.aisleW})`;
+    elBadge.textContent = badgeText;
+
+    const { cols, matrix } = getDisplay();
+    setGridColumns(cols);
+
+    elSeats.innerHTML = "";
+
+    for (const row of matrix) {
+      for (const cell of row) {
+        if (cell.type === "aisle") {
+          const div = document.createElement("div");
+          div.className = "aisle-cell rounded-4 p-3";
+          div.innerHTML = `
+            <div class="text-[10px] text-slate-400">통로</div>
+            <div class="mt-2 h-10 rounded-3 border border-white/10 bg-white/5"></div>
+          `;
+          elSeats.appendChild(div);
+          continue;
+        }
+
+        if (cell.type === "empty") {
+          const div = document.createElement("div");
+          div.className = "empty-cell rounded-4 p-3";
+          div.innerHTML = `
+            <div class="text-xs text-slate-400">빈 칸</div>
+            <div class="mt-2 text-[11px] text-slate-500">(공간/간격)</div>
+          `;
+          elSeats.appendChild(div);
+          continue;
+        }
+
+        // seat
+        const idx = cell.seatIndex;
+        const seat = state.seats[idx];
+
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = [
+          "seat-card",
+          "text-start",
+          "rounded-4",
+          "border",
+          "border-white/10",
+          "bg-white/5",
+          "hover:bg-white/10",
+          "transition",
+          "p-3",
+          "shadow-[0_10px_30px_-20px_rgba(0,0,0,.8)]",
+          "focus:outline-none",
+          "focus:ring-2",
+          "focus:ring-indigo-400/60",
+          seat.inactive ? "is-seat-hidden" : ""
+        ].join(" ");
+
+        card.setAttribute("draggable", "true");
+        card.dataset.index = String(idx);
+
+        card.innerHTML = `
+          <div class="d-flex align-items-center justify-content-between gap-2">
+            <div class="text-xs text-slate-300">좌석 ${seat.id}</div>
+            <div class="text-[10px] px-2 py-1 rounded-full bg-indigo-400/10 border border-indigo-300/20 text-indigo-200">
+              drag
+            </div>
+          </div>
+          <div class="mt-2 text-base md:text-lg font-semibold text-slate-100 leading-tight print-text-dark">
+            ${escapeHtml(seat.name)}
+          </div>
+          <div class="mt-1 text-xs text-slate-400">
+            ${seat.inactive ? "🚫 비활성(결석)" : (absentMode ? "클릭: 결석 토글" : "클릭: 이름 수정")}
+          </div>
+        `;
+
+        card.addEventListener("click", () => {
+          if (absentMode) toggleInactive(idx);
+          else editSeatName(idx);
+        });
+
+        card.addEventListener("dragstart", (e) => {
+          card.classList.add("dragging");
+          e.dataTransfer.setData("text/plain", String(idx));
+          e.dataTransfer.effectAllowed = "move";
+        });
+        card.addEventListener("dragend", () => {
+          card.classList.remove("dragging");
+          document.querySelectorAll(".drop-hint").forEach(x => x.classList.remove("drop-hint"));
+        });
+
+        card.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          card.classList.add("drop-hint");
+          e.dataTransfer.dropEffect = "move";
+        });
+        card.addEventListener("dragleave", () => card.classList.remove("drop-hint"));
+
+        card.addEventListener("drop", (e) => {
+          e.preventDefault();
+          card.classList.remove("drop-hint");
+          const from = Number(e.dataTransfer.getData("text/plain"));
+          const to = idx;
+          if (Number.isNaN(from) || from === to) return;
+          swapSeats(from, to);
+        });
+
+        elSeats.appendChild(card);
+      }
+    }
+  }
+
+  function swapSeats(i, j) {
+    const next = [...state.seats];
+    [next[i], next[j]] = [next[j], next[i]];
+    state.seats = next;
+    render();
+  }
+
+  function toggleInactive(index) {
+    state.seats[index] = { ...state.seats[index], inactive: !state.seats[index].inactive };
+    render();
+  }
+
+  async function editSeatName(index) {
+    const seat = state.seats[index];
+    const { value, isConfirmed } = await Swal.fire({
+      title: `좌석 ${seat.id} 이름 수정`,
+      input: "text",
+      inputValue: seat.name,
+      inputPlaceholder: "학생 이름을 입력하세요",
+      showCancelButton: true,
+      confirmButtonText: "저장",
+      cancelButtonText: "취소",
+      background: "#0b1220",
+      color: "#e5e7eb",
+      inputAttributes: { maxlength: 30 },
+      customClass: {
+        popup: "rounded-4 border border-white/10",
+        confirmButton: "btn btn-primary",
+        cancelButton: "btn btn-outline-light ms-2"
+      },
+      buttonsStyling: false,
+      preConfirm: (v) => {
+        const t = (v ?? "").trim();
+        if (!t) { Swal.showValidationMessage("이름이 비어있으면 안 됩니다."); return false; }
+        return t;
+      }
+    });
+    if (!isConfirmed) return;
+    state.seats[index] = { ...seat, name: value };
+    render();
+  }
+
+  async function editAllNames() {
+    const current = state.seats.map(s => s.name).join("\n");
+    const { value, isConfirmed } = await Swal.fire({
+      title: "전체 이름 입력",
+      html: `<div class="text-slate-300 text-sm mb-2">줄바꿈(Enter)으로 30명 이름을 붙여넣으세요.</div>`,
+      input: "textarea",
+      inputValue: current,
+      inputPlaceholder: "예) 홍길동\n김철수\n이영희 ...",
+      inputAttributes: { rows: 12 },
+      showCancelButton: true,
+      confirmButtonText: "적용",
+      cancelButtonText: "취소",
+      background: "#0b1220",
+      color: "#e5e7eb",
+      customClass: {
+        popup: "rounded-4 border border-white/10",
+        confirmButton: "btn btn-primary",
+        cancelButton: "btn btn-outline-light ms-2"
+      },
+      buttonsStyling: false,
+      preConfirm: (txt) => {
+        const lines = (txt ?? "").split("\n").map(s => s.trim()).filter(Boolean);
+        if (lines.length !== TOTAL) {
+          Swal.showValidationMessage(`이름이 ${TOTAL}줄이어야 합니다. (현재 ${lines.length}줄)`);
+          return false;
+        }
+        return lines;
+      }
+    });
+    if (!isConfirmed) return;
+    state.seats = state.seats.map((s, i) => ({ ...s, name: value[i] }));
+    render();
+    Swal.fire({ icon:"success", title:"적용 완료!", timer:1100, showConfirmButton:false, background:"#0b1220", color:"#e5e7eb" });
+  }
+
+  async function shuffleSeats() {
+    const result = await Swal.fire({
+      title: "랜덤으로 섞을까요?",
+      html: `<div class="text-slate-300 text-sm">비활성(결석) 좌석은 그대로 두고, 활성 학생만 섞습니다.</div>`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "활성만 섞기",
+      cancelButtonText: "취소",
+      background: "#0b1220",
+      color: "#e5e7eb",
+      customClass: {
+        popup: "rounded-4 border border-white/10",
+        confirmButton: "btn btn-warning",
+        cancelButton: "btn btn-outline-light ms-2"
+      },
+      buttonsStyling: false
+    });
+    if (!result.isConfirmed) return;
+
+    const indices = state.seats.map((s,i)=>({s,i})).filter(x=>!x.s.inactive).map(x=>x.i);
+    const names = indices.map(i => state.seats[i].name);
+
+    for (let i = names.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [names[i], names[j]] = [names[j], names[i]];
+    }
+
+    const next = [...state.seats];
+    indices.forEach((seatIndex, k) => next[seatIndex] = { ...next[seatIndex], name: names[k] });
+    state.seats = next;
+    render();
+
+    Swal.fire({ icon:"success", title:"섞기 완료!", timer:900, showConfirmButton:false, background:"#0b1220", color:"#e5e7eb" });
+  }
+
+  function save() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    Swal.fire({ icon:"success", title:"저장 완료", text:"이 브라우저에 저장되었습니다.", timer:1200, showConfirmButton:false, background:"#0b1220", color:"#e5e7eb" });
+  }
+
+  async function load() {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      Swal.fire({ icon:"info", title:"저장된 데이터 없음", text:"먼저 저장을 해주세요.", background:"#0b1220", color:"#e5e7eb" });
+      return;
+    }
+
+    const result = await Swal.fire({
+      title: "불러올까요?",
+      text: "저장된 자리배치로 현재 화면이 바뀝니다.",
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: "불러오기",
+      cancelButtonText: "취소",
+      background: "#0b1220",
+      color: "#e5e7eb",
+      customClass: { popup:"rounded-4 border border-white/10", confirmButton:"btn btn-primary", cancelButton:"btn btn-outline-light ms-2" },
+      buttonsStyling: false
+    });
+    if (!result.isConfirmed) return;
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed?.seats || !Array.isArray(parsed.seats) || parsed.seats.length !== TOTAL) throw new Error("invalid");
+
+      state = {
+        title: String(parsed.title ?? "정보 수업").slice(0, 40),
+        layoutMode: (parsed.layoutMode === "group4" || parsed.layoutMode === "group6") ? parsed.layoutMode : "lecture",
+        rows: clamp(Number(parsed.rows ?? 5), 1, 10),
+        seatCols: clamp(Number(parsed.seatCols ?? 6), 2, 10),
+        aisleW: clamp(Number(parsed.aisleW ?? 1), 0, 2),
+        seats: parsed.seats.map((s,i)=>({
+          id: i+1,
+          name: String(s.name ?? `학생 ${String(i+1).padStart(2,"0")}`).slice(0,30),
+          inactive: Boolean(s.inactive ?? false)
+        }))
+      };
+
+      elRows.value = state.rows;
+      elSeatCols.value = state.seatCols;
+      elAisleW.value = String(state.aisleW);
+
+      render();
+      Swal.fire({ icon:"success", title:"불러오기 완료", timer:1000, showConfirmButton:false, background:"#0b1220", color:"#e5e7eb" });
+    } catch {
+      Swal.fire({ icon:"error", title:"불러오기 실패", text:"저장 데이터가 손상되었거나 형식이 맞지 않습니다.", background:"#0b1220", color:"#e5e7eb" });
+    }
+  }
+
+  async function resetAll() {
+    const result = await Swal.fire({
+      title: "초기화할까요?",
+      html: "<div class='text-slate-300 text-sm'>이름/배치/레이아웃/비활성 상태가 기본으로 돌아갑니다.</div>",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "초기화",
+      cancelButtonText: "취소",
+      background: "#0b1220",
+      color: "#e5e7eb",
+      customClass: { popup:"rounded-4 border border-white/10", confirmButton:"btn btn-danger", cancelButton:"btn btn-outline-light ms-2" },
+      buttonsStyling: false
+    });
+    if (!result.isConfirmed) return;
+
+    state.title = "정보 수업";
+    state.layoutMode = "lecture";
+    state.rows = 5;
+    state.seatCols = 6;
+    state.aisleW = 1;
+    state.seats = Array.from({ length: TOTAL }, (_, i) => ({
+      id: i + 1,
+      name: `학생 ${String(i + 1).padStart(2, "0")}`,
+      inactive: false
+    }));
+
+    elRows.value = state.rows;
+    elSeatCols.value = state.seatCols;
+    elAisleW.value = String(state.aisleW);
+
+    render();
+    Swal.fire({ icon:"success", title:"초기화 완료", timer:900, showConfirmButton:false, background:"#0b1220", color:"#e5e7eb" });
+  }
+
+  function exportCSV() {
+    const rows = [
+      ["seat_id", "name", "inactive", "layoutMode"],
+      ...state.seats.map(s => [s.id, s.name, s.inactive ? "1" : "0", state.layoutMode])
+    ];
+    const csv = rows.map(r => r.map(cell => `"${String(cell).replaceAll('"','""')}"`).join(",")).join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "classroom_seating_30.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    Swal.fire({ icon:"success", title:"CSV 다운로드", text:"classroom_seating_30.csv 저장됨", timer:1200, showConfirmButton:false, background:"#0b1220", color:"#e5e7eb" });
+  }
+
+  async function setTitle() {
+    const { value, isConfirmed } = await Swal.fire({
+      title: "수업 제목(칠판)",
+      input: "text",
+      inputValue: state.title,
+      inputPlaceholder: "예) 2-3반 정보, 파이썬 프로젝트",
+      showCancelButton: true,
+      confirmButtonText: "적용",
+      cancelButtonText: "취소",
+      background: "#0b1220",
+      color: "#e5e7eb",
+      inputAttributes: { maxlength: 40 },
+      customClass: { popup:"rounded-4 border border-white/10", confirmButton:"btn btn-primary", cancelButton:"btn btn-outline-light ms-2" },
+      buttonsStyling: false,
+      preConfirm: (v) => {
+        const t = (v ?? "").trim();
+        if (!t) { Swal.showValidationMessage("제목이 비어있으면 안 됩니다."); return false; }
+        return t;
+      }
+    });
+    if (!isConfirmed) return;
+    state.title = value;
+    render();
+  }
+
+  async function toggleAbsentMode() {
+    absentMode = !absentMode;
+    Swal.fire({
+      icon: "info",
+      title: absentMode ? "결석/비활성 토글 모드 ON" : "결석/비활성 토글 모드 OFF",
+      text: absentMode ? "좌석을 클릭하면 결석 처리됩니다." : "좌석 클릭 시 이름 수정으로 돌아갑니다.",
+      timer: 1400,
+      showConfirmButton: false,
+      background: "#0b1220",
+      color: "#e5e7eb"
+    });
+    render();
+  }
+
+  async function applyLectureLayoutFromUI() {
+    const rows = clamp(Number(elRows.value || 5), 1, 10);
+    const seatCols = clamp(Number(elSeatCols.value || 6), 2, 10);
+    const aisleW = clamp(Number(elAisleW.value || 1), 0, 2);
+
+    const capacity = rows * seatCols;
+    if (capacity < TOTAL) {
+      await Swal.fire({ icon:"error", title:"좌석이 부족합니다", text:`현재 설정(${seatCols}×${rows})은 ${TOTAL}석을 담을 수 없어요.`, background:"#0b1220", color:"#e5e7eb" });
+      elRows.value = state.rows;
+      elSeatCols.value = state.seatCols;
+      elAisleW.value = String(state.aisleW);
+      return;
+    }
+
+    state.layoutMode = "lecture";
+    state.rows = rows;
+    state.seatCols = seatCols;
+    state.aisleW = aisleW;
+
+    Swal.fire({ icon:"success", title:"강의식 레이아웃 적용!", timer:900, showConfirmButton:false, background:"#0b1220", color:"#e5e7eb" });
+    render();
+  }
+
+  async function switchTemplate(mode) {
+    const name = mode === "group4" ? "4인 모둠(섬)" : mode === "group6" ? "6인 모둠(섬)" : "강의식";
+    const result = await Swal.fire({
+      title: `${name}로 전환할까요?`,
+      text: "이름/좌석 번호는 유지되고, ‘보이는 배치’만 바뀝니다.",
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: "전환",
+      cancelButtonText: "취소",
+      background: "#0b1220",
+      color: "#e5e7eb",
+      customClass: { popup:"rounded-4 border border-white/10", confirmButton:"btn btn-primary", cancelButton:"btn btn-outline-light ms-2" },
+      buttonsStyling: false
+    });
+    if (!result.isConfirmed) return;
+
+    state.layoutMode = mode;
+
+    // lecture로 돌아갈 때 기본값이 싫으면 여기서 유지/세팅 조정 가능
+    if (mode === "lecture") {
+      // 현재 UI 값 그대로 적용(혹은 state 값 유지)
+      // 여기서는 state가 가진 lecture 값을 그대로 유지
+    }
+
+    Swal.fire({ icon:"success", title:"전환 완료!", timer:800, showConfirmButton:false, background:"#0b1220", color:"#e5e7eb" });
+    render();
+  }
+
+  // Buttons
+  document.getElementById("btnTitle").addEventListener("click", setTitle);
+  document.getElementById("btnEditAll").addEventListener("click", editAllNames);
+  document.getElementById("btnShuffle").addEventListener("click", shuffleSeats);
+  document.getElementById("btnSave").addEventListener("click", save);
+  document.getElementById("btnLoad").addEventListener("click", load);
+  document.getElementById("btnExport").addEventListener("click", exportCSV);
+  document.getElementById("btnPrint").addEventListener("click", () => window.print());
+  document.getElementById("btnReset").addEventListener("click", resetAll);
+  document.getElementById("btnAbsentMode").addEventListener("click", toggleAbsentMode);
+  document.getElementById("btnApplyLectureLayout").addEventListener("click", applyLectureLayoutFromUI);
+
+  // NEW Template buttons
+  document.getElementById("btnTplLecture").addEventListener("click", () => switchTemplate("lecture"));
+  document.getElementById("btnTplGroup4").addEventListener("click", () => switchTemplate("group4"));
+  document.getElementById("btnTplGroup6").addEventListener("click", () => switchTemplate("group6"));
+
+  // Init
+  render();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
